@@ -1,13 +1,26 @@
+from flask import Flask, request, jsonify
 from models.inventory_model import inventory_collection
-from flask import jsonify
 from controllers.alerts_controller import create_alert
+from models.item_model import Item
+from models.scan_model import scan_collection
+from config import db
+from bson import ObjectId
+
+latest_weight = None
+
+
 def add_inventory_item(ambulance_id, item):
     required_fields = ["id", "rfid_id", "name", "code", "type", "quantity"]
     for field in required_fields:
         if field not in item:
             return jsonify({"error": f"{field} is required"}), 400
 
-    if not isinstance(item["quantity"], int) or item["quantity"] < 0:
+    try:
+        item["quantity"] = int(item["quantity"])
+    except (ValueError, TypeError):
+        return jsonify({"error": "Quantity must be a positive integer"}), 400
+
+    if item["quantity"] < 0:
         return jsonify({"error": "Quantity must be a positive integer"}), 400
 
     existing_item = inventory_collection.find_one(
@@ -30,23 +43,28 @@ def add_inventory_item(ambulance_id, item):
         return jsonify({"message": "Item added successfully"}), 201
 
 def update_inventory_item(ambulance_id, item_id, updated_item):
+    if 'quantity' in updated_item:
+        try:
+            updated_item['quantity'] = int(updated_item['quantity'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "Quantity must be an integer"}), 400
+
     result = inventory_collection.update_one(
         {"ambulance_id": ambulance_id, "items.id": item_id},
         {"$set": {"items.$": updated_item}}
     )
-    
+
     if result.matched_count == 0:
         return jsonify({"error": "Item not found"}), 404
-    
-    return jsonify({"message": "Item updated successfully"}), 200
 
+    return jsonify({"message": "Item updated successfully"}), 200
 
 def get_inventory(ambulance_id):
     inventory = inventory_collection.find_one({"ambulance_id": ambulance_id}, {"_id": 0})
-    
+
     if not inventory:
         return jsonify({"error": "No inventory found for this ambulance"}), 404
-    
+
     return jsonify(inventory), 200
 
 def delete_inventory_item(ambulance_id, item_id, hospital_id):
@@ -61,17 +79,19 @@ def delete_inventory_item(ambulance_id, item_id, hospital_id):
 
         for item in inventory_doc['items']:
             if item['id'] == item_id:
-                current_quantity = int(item.get('quantity', 0))
+                try:
+                    current_quantity = int(item.get('quantity', 0))
+                except (ValueError, TypeError):
+                    current_quantity = 0
 
                 if current_quantity > 1:
                     new_quantity = current_quantity - 1
 
-                    # Manually update quantity
                     inventory_collection.update_one(
                         {"ambulance_id": ambulance_id},
                         {
                             "$set": {
-                                "items.$[elem].quantity": str(new_quantity)  # store as string if needed
+                                "items.$[elem].quantity": new_quantity
                             }
                         },
                         array_filters=[{"elem.id": item_id}]
@@ -100,3 +120,161 @@ def delete_inventory_item(ambulance_id, item_id, hospital_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def handle_rfid(request):
+    global latest_weight
+    data = request.get_json()
+    rfid_id = data.get('uid')
+
+    if not rfid_id:
+        return jsonify({"error": "No RFID received"}), 400
+
+    rfid_id = rfid_id.strip().upper()
+    print(f"📡 Received Tag UID: {rfid_id}")
+
+    items_collection = db.items
+    item = items_collection.find_one({"rfid_id": rfid_id})
+
+    if item:
+        scan_document = scan_collection.find_one()
+        if scan_document:
+            status = scan_document.get('status')
+            print("Current Status:", status)
+
+            if status == 'refill':
+                add_inventory_item("A001", {
+                    "id": item['id'],
+                    "rfid_id": item['rfid_id'],
+                    "name": item['name'],
+                    "code": item['code'],
+                    "type": item['type'],
+                    "quantity": 1
+                })
+                print(f"Item {item['name']} added to inventory (refill).")
+
+            elif status == 'used':
+                delete_inventory_item("A001", item['id'], "H004")
+                print(f"Item {item['name']} removed from inventory (used).")
+
+            elif status == 'weighted':
+                if latest_weight is None:
+                    return jsonify({"error": "No weight data available"}), 400
+
+                if latest_weight < 0:
+                    latest_weight = 0
+
+                difference = 500 - latest_weight
+
+                # Fetch the item entry from the inventory
+                doc = inventory_collection.find_one({
+                    "ambulance_id": "A001",
+                    "items.id": item["id"]
+                })
+
+                if not doc:
+                    return jsonify({"error": "Item not found in inventory"}), 404
+
+                # Locate the item inside the items array
+                matched_item = next((i for i in doc["items"] if i["id"] == item["id"]), None)
+                matched_item_id = matched_item["id"] if matched_item else None
+
+                if not matched_item:
+                    return jsonify({"error": "Item not found in items list"}), 404
+
+                current_quantity = matched_item.get("quantity", 0)
+
+                # Compute new quantity
+                new_quantity = current_quantity - difference
+                if new_quantity <= 0:
+                    # Set to zero explicitly
+                    new_quantity=0
+                    update_result = inventory_collection.update_one(
+                        {"ambulance_id": "A001", "items.id": item["id"]},
+                        {"$set": {"items.$.quantity": 0}}
+                    )
+                    
+                    create_alert({
+                            "ambulance_id": "A001",
+                            "patient_id": "N/A",
+                            "hospital_id": "H004",
+                            "alert_type": "Low Inventory",
+                            "alert_message": f"Item '{matched_item_id}' is low on stock (quantity: {new_quantity})",
+                            "flag": "warning"
+                        })
+                else:
+                    # Subtract the difference
+                    update_result = inventory_collection.update_one(
+                        {"ambulance_id": "A001", "items.id": item["id"]},
+                        {"$inc": {"items.$.quantity": -difference}}
+                    )
+
+                if update_result.modified_count > 0:
+                    print(f"✅ Updated item quantity for {item['name']} by -{difference}")
+                else:
+                    print("⚠️ Item quantity update failed or already up to date.")
+
+                print("📦 Weight from load cell:", latest_weight)
+                print("📏 Weight difference:", difference)
+                print(f"Item {item['name']} is weighted.")
+
+        item['_id'] = str(item['_id'])
+
+        return jsonify({
+            "message": "RFID UID received",
+            "RFID": rfid_id,
+            "item": item,
+            "weight": latest_weight if status == 'weighted' else None,
+            "difference": difference if status == 'weighted' else None
+        }), 200
+
+    else:
+        return jsonify({
+            "message": "Unknown RFID UID",
+            "RFID": rfid_id
+        }), 404
+
+
+def handle_weight(request):
+    global latest_weight
+    data = request.get_json()
+    weight = data.get("weight")
+
+    if weight is None:
+        return jsonify({"error": "No weight provided"}), 400
+
+    latest_weight = weight  # Store the received weight
+    print(f"✅ Updated latest weight: {latest_weight}")
+
+    difference = 500 - weight
+    return jsonify({
+        "difference": difference,
+        "weight": weight
+    }), 200
+
+
+
+def add_item(request):
+    data = request.get_json()
+    required_fields = ['id', 'rfid_id', 'name', 'code', 'type']
+
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    item_data = {
+        "id": data['id'],
+        "rfid_id": data['rfid_id'],
+        "name": data['name'],
+        "code": data['code'],
+        "type": data['type']
+    }
+
+    try:
+        result = db.items.insert_one(item_data)
+        return jsonify({
+            "message": "Item added successfully!",
+            "item_id": str(result.inserted_id)
+        }), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+

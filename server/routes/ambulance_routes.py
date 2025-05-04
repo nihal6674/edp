@@ -19,3 +19,5 @@ ambulance_bp.route("/inventory", methods=["GET"])(get_ambulance_inventory)
 
 ambulance_bp.route("/location", methods=["POST"])(update_location)
 
+
+

@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } from "../../api/InventoryApi";
 import { BrowserMultiFormatReader } from "@zxing/library";
 import { useSelector } from "react-redux";
-import axios from "axios";
+import axios, { formToJSON } from "axios";
 
-
+import ScanButton from "../ScanModeButton"
 
 const AmbulanceInventory = () => {
 
@@ -54,6 +54,9 @@ const AmbulanceInventory = () => {
         if (ambulanceId) {
             fetchInventory();
         }
+
+        const interval = setInterval(fetchInventory, 500);
+        return () => clearInterval(interval);
     }, [ambulanceId]);
 
     const fetchInventory = async () => {
@@ -253,6 +256,7 @@ const AmbulanceInventory = () => {
                 </div>
             )}
 
+            <ScanButton/>
 
             {/* Inventory List */}
             <div className="w-full max-w-lg">
