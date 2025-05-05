@@ -1,3 +1,4 @@
+from datetime import datetime
 from flask import Flask, request, jsonify
 from models.inventory_model import inventory_collection
 from controllers.alerts_controller import create_alert
@@ -8,7 +9,6 @@ from bson import ObjectId
 
 latest_weight = None
 last_weight = 0
-rfid_summary = {}
 
 
 def add_inventory_item(ambulance_id, item):
@@ -67,10 +67,7 @@ def get_inventory(ambulance_id):
     if not inventory:
         return jsonify({"error": "No inventory found for this ambulance"}), 404
 
-    return jsonify({
-        "inventory": inventory,
-        "rfid_summary": rfid_summary  # ✅ Send it along
-    }), 200
+    return jsonify(inventory), 200 
 
 def delete_inventory_item(ambulance_id, item_id, hospital_id):
     try:
@@ -125,11 +122,28 @@ def delete_inventory_item(ambulance_id, item_id, hospital_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+def get_latest_rfid_summary():
+    try:
+        latest_rfid = db.rfid_summary.find({"ambulance_id": "A001"}).sort("timestamp", -1).limit(1)
+
+        if latest_rfid.alive is False:
+            print("No RFID summary found.")
+            return jsonify({"error": "No RFID summary found for ambulance A001"}), 404
+
+        latest_rfid_summary = list(latest_rfid)[0]
+        latest_rfid_summary["_id"] = str(latest_rfid_summary["_id"])
+
+        print("latest rfid summary: ", latest_rfid_summary)
+        return jsonify(latest_rfid_summary), 200
+    except Exception as e:
+        print(f"Error in getting RFID summary: {e}")
+        return jsonify({"error": "Internal Server Error"}), 500
+
 
 def handle_rfid(request):
     global latest_weight
     global last_weight
-    global rfid_summary
     data = request.get_json()
     rfid_id = data.get('uid')
 
@@ -142,15 +156,14 @@ def handle_rfid(request):
     items_collection = db.items
     item = items_collection.find_one({"rfid_id": rfid_id})
     inventory_doc = inventory_collection.find_one({
-    "ambulance_id": "A001",
-    "items.rfid_id": item["rfid_id"]
-})
+        "ambulance_id": "A001",
+        "items.rfid_id": item["rfid_id"]
+    })
 
     matched_item = None
     if inventory_doc and "items" in inventory_doc:
         matched_item = next((i for i in inventory_doc["items"] if i["rfid_id"] == item["rfid_id"]), None)
 
-    
     if item:
         scan_document = scan_collection.find_one()
         if scan_document:
@@ -167,19 +180,25 @@ def handle_rfid(request):
                     "quantity": 1
                 })
                 rfid_summary = {
-        "item_name": item["name"],
-        "quantity": matched_item["quantity"],
-        "mode": "refill"
-    }
+                    "ambulance_id": "A001",
+                    "item_name": item["name"],
+                    "quantity": matched_item["quantity"],
+                    "mode": "refill",
+                    "timestamp": datetime.utcnow()
+                }
+                db.rfid_summary.insert_one(rfid_summary)
                 print(f"Item {item['name']} added to inventory (refill).")
 
             elif status == 'used':
                 delete_inventory_item("A001", item['id'], "H004")
                 rfid_summary = {
-        "item_name": item["name"],
-        "quantity": matched_item["quantity"],
-        "mode": "used"
-    }
+                    "ambulance_id": "A001",
+                    "item_name": item["name"],
+                    "quantity": matched_item["quantity"],
+                    "mode": "used",
+                    "timestamp": datetime.utcnow()
+                }
+                db.rfid_summary.insert_one(rfid_summary)
                 print(f"Item {item['name']} removed from inventory (used).")
 
             elif status == 'weighted':
@@ -213,20 +232,20 @@ def handle_rfid(request):
                 new_quantity = current_quantity - difference
                 if new_quantity <= 0:
                     # Set to zero explicitly
-                    new_quantity=0
+                    new_quantity = 0
                     update_result = inventory_collection.update_one(
                         {"ambulance_id": "A001", "items.id": item["id"]},
                         {"$set": {"items.$.quantity": 0}}
                     )
-                    
+
                     create_alert({
-                            "ambulance_id": "A001",
-                            "patient_id": "N/A",
-                            "hospital_id": "H004",
-                            "alert_type": "Low Inventory",
-                            "alert_message": f"Item '{matched_item_id}' is low on stock (quantity: {new_quantity})",
-                            "flag": "warning"
-                        })
+                        "ambulance_id": "A001",
+                        "patient_id": "N/A",
+                        "hospital_id": "H004",
+                        "alert_type": "Low Inventory",
+                        "alert_message": f"Item '{matched_item_id}' is low on stock (quantity: {new_quantity})",
+                        "flag": "warning"
+                    })
                 else:
                     # Subtract the difference
                     update_result = inventory_collection.update_one(
@@ -236,10 +255,13 @@ def handle_rfid(request):
 
                 if update_result.modified_count > 0:
                     rfid_summary = {
-        "item_name": item["name"],
-        "quantity": new_quantity,
-        "mode": "weighted"
-    }
+                        "ambulance_id": "A001",
+                        "item_name": item["name"],
+                        "quantity": new_quantity,
+                        "mode": "weighted",
+                        "timestamp": datetime.utcnow()
+                    }
+                    db.rfid_summary.insert_one(rfid_summary)
                     print(f"✅ Updated item quantity for {item['name']} by -{difference}")
                 else:
                     print("⚠️ Item quantity update failed or already up to date.")
@@ -247,7 +269,7 @@ def handle_rfid(request):
                 print("📦 Weight from load cell:", latest_weight)
                 print("📏 Weight difference:", difference)
                 print(f"Item {item['name']} is weighted.")
-            
+
             elif status == "weighted_refill":
                 if latest_weight >= 10 and last_weight is not None:
                     quant = latest_weight - last_weight
@@ -272,7 +294,7 @@ def handle_rfid(request):
                         {"ambulance_id": "A001", "items.id": item["id"]},
                         {"$inc": {"items.$.quantity": quant}}
                     )
-                    if quant <30 :
+                    if quant < 30:
                         create_alert({
                             "ambulance_id": "A001",
                             "patient_id": "N/A",
@@ -283,10 +305,13 @@ def handle_rfid(request):
                         })
                     if update_result.modified_count > 0:
                         rfid_summary = {
-        "item_name": item["name"],
-        "quantity": quant,
-        "mode": "weighted_refill"
-    }
+                            "ambulance_id": "A001",
+                            "item_name": item["name"],
+                            "quantity": quant,
+                            "mode": "weighted_refill",
+                            "timestamp": datetime.utcnow()
+                        }
+                        db.rfid_summary.insert_one(rfid_summary)
                         print(f"✅ Updated item quantity for {item['name']} by +{quant}")
                         return jsonify({
                             "message": "Quantity updated via weighted refill",
@@ -316,7 +341,6 @@ def handle_rfid(request):
             "message": "Unknown RFID UID",
             "RFID": rfid_id
         }), 404
-
 
 def handle_weight(request):
     global latest_weight

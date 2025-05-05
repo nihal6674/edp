@@ -1,5 +1,5 @@
 from flask import Blueprint, request
-from controllers.inventory_controller import add_inventory_item, update_inventory_item, delete_inventory_item, get_inventory, handle_rfid, handle_weight,add_item
+from controllers.inventory_controller import add_inventory_item, update_inventory_item, delete_inventory_item, get_inventory, handle_rfid, handle_weight,add_item, get_latest_rfid_summary
 
 inventory_bp = Blueprint("inventory", __name__)
 
@@ -19,7 +19,9 @@ def delete_item(ambulance_id, item_id, hospital_id):
 def get_items(ambulance_id):
     return get_inventory(ambulance_id)
 
-
+@inventory_bp.route('/latest_rfid_summary', methods=['GET'])
+def latest_rfid_summary():
+    return get_latest_rfid_summary()
 
 @inventory_bp.route('/rfid', methods=['POST'])
 def receive_rfid():

@@ -19,10 +19,11 @@ const AmbulanceInventory = () => {
   const hospitalId = data?.hospital_id;
 
   const ambulanceId = details.data.ambulance_id;
-//   console.log(ambulanceId);
-//   console.log("HOSPITAL:", hospitalId);
+  //   console.log(ambulanceId);
+  //   console.log("HOSPITAL:", hospitalId);
 
   const [inventory, setInventory] = useState([]);
+  const [rfidSummary, setRfidSummary] = useState(null);
   const [newItem, setNewItem] = useState({
     id: "",
     rfid_id: "",
@@ -39,7 +40,7 @@ const AmbulanceInventory = () => {
   const [selectedItem, setSelectedItem] = useState(null);
 
   const [ambulanceType, setAmbulanceType] = useState(null);
-//   console.log("ambulance_ID::", details.data.ambulance_id);
+  //   console.log("ambulance_ID::", details.data.ambulance_id);
 
   const fetchType = async () => {
     if (details?.data?.ambulance_id) {
@@ -47,7 +48,6 @@ const AmbulanceInventory = () => {
         const res = await axios.get(
           `http://localhost:5000/api/ambulance/inventory?ambulance_id=${details.data.ambulance_id}`
         );
-        // console.log("res::", res);
         setAmbulanceType(res.data.ambulance_type);
       } catch (err) {
         console.error("Error fetching ambulance type", err);
@@ -55,6 +55,29 @@ const AmbulanceInventory = () => {
       }
     }
   };
+  
+  useEffect(() => {
+    const fetchRfidSummary = async () => {
+      try {
+        const response = await axios.get(
+          "http://localhost:5000/api/inventory/latest_rfid_summary"
+        );
+        setRfidSummary(response.data);
+        console.log("RFID Summary: ", response.data);
+      } catch (err) {
+        console.error("Error fetching rfid summary", err);
+      }
+    };
+  
+    // Call immediately
+    fetchRfidSummary();
+  
+    // Set up polling every 5 seconds
+    const interval = setInterval(fetchRfidSummary, 1000);
+  
+    // Cleanup on component unmount
+    return () => clearInterval(interval);
+  }, []);  
 
   useEffect(() => {
     if (ambulanceId) {
@@ -67,10 +90,10 @@ const AmbulanceInventory = () => {
 
   const fetchInventory = async () => {
     const response = await getInventory(ambulanceId);
-    console.log("KOLAVERI", response);
+    // console.log("KOLAVERI", response);
     fetchType();
     if (!response.error) {
-      setInventory(response.inventory.items || []);
+      setInventory(response.items || []);
     } else {
       setMessage(response.error);
     }
@@ -155,7 +178,7 @@ const AmbulanceInventory = () => {
 
                 try {
                   const scannedData = JSON.parse(result.text);
-                //   console.log("ScannedData", scannedData);
+                  //   console.log("ScannedData", scannedData);
 
                   const response = await addInventoryItem(ambulanceId, {
                     ...scannedData,
@@ -207,7 +230,7 @@ const AmbulanceInventory = () => {
                 try {
                   const scannedData = JSON.parse(result.text);
                   const { id } = scannedData;
-                //   console.log("ScannedData", scannedData);
+                  //   console.log("ScannedData", scannedData);
                   if (!ambulanceId || !id) {
                     setMessage("❌ QR code missing ambulanceId or itemId.");
                     setIsScanning(false);

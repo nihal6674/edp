@@ -20,7 +20,7 @@ import os
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enables CORS for all routes
+CORS(app, origins=["http://localhost:5173"])
 
 # Register Blueprints
 app.register_blueprint(ambulance_bp, url_prefix="/api/ambulance")
