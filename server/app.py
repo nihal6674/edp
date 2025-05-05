@@ -109,33 +109,33 @@ def home():
 
  
 
-# # 📦 Add Item route
-# @app.route('/api/items', methods=['POST'])
-# def include_item():
-#     data = request.get_json()
+# 📦 Add Item route
+@app.route('/api/items', methods=['POST'])
+def include_item():
+    data = request.get_json()
 
-#     # Validate incoming data
-#     if not all(key in data for key in ['id','rfid_id', 'name','code' , 'type']):
-#         return jsonify({"error": "Missing required fields"}), 400
+    # Validate incoming data
+    if not all(key in data for key in ['id','rfid_id', 'name','code' , 'type']):
+        return jsonify({"error": "Missing required fields"}), 400
 
-#     # Insert the new item into the MongoDB collection
-#     items_collection = db.items
-#     item_data = {
-#         "id": data['id'],
-#         "rfid_id": data['rfid_id'],
-#         "name": data['name'],
-#         "code": data['code'],
-#         "type": data['type'],
-#     }
+    # Insert the new item into the MongoDB collection
+    items_collection = db.items
+    item_data = {
+        "id": data['id'],
+        "rfid_id": data['rfid_id'],
+        "name": data['name'],
+        "code": data['code'],
+        "type": data['type'],
+    }
 
-#     try:
-#         result = items_collection.insert_one(item_data)  # Insert into MongoDB
-#         return jsonify({
-#             "message": "Item added successfully!",
-#             "item_id": str(result.inserted_id)
-#         }), 201
-#     except Exception as e:
-#         return jsonify({"error": str(e)}), 500
+    try:
+        result = items_collection.insert_one(item_data)  # Insert into MongoDB
+        return jsonify({
+            "message": "Item added successfully!",
+            "item_id": str(result.inserted_id)
+        }), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Function to serialize ObjectId to string
 def serialize_object_id(obj):
