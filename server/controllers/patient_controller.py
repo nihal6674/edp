@@ -34,7 +34,7 @@ def classify():
         model = genai.GenerativeModel('gemma-3-27b-it')
 
         prompt = f"""
-        You are a medical triage AI. Classify the patient's statement into **exactly one** of the following categories:
+        You are a medical triage AI. Classify the patient's statement into *exactly one* of the following categories:
 
         1. 'critical' - Life-threatening emergencies or dying or died or severe pain or issue or burning or blasting (e.g., chest pain, severe bleeding, difficulty breathing, unconsciousness).
         2. 'non-critical' - Mild medical issues (e.g., headache, fever, cough, sore throat, small cuts).
@@ -74,7 +74,7 @@ def chat():
         text = data['text'].strip()
         category = data.get('category', 'non-critical')
 
-        model = genai.GenerativeModel('gemma-3-27b-it')
+        model = genai.GenerativeModel('gemini-1.5-pro')
 
         if category == 'irrelevant':
             prompt = f"""
@@ -150,3 +150,6 @@ def update_location():
     except Exception as e:
         logging.error(f'Location update error: {str(e)}', exc_info=True)
         return jsonify({'error': 'Failed to update location'}), 500
+
+
+

@@ -7,8 +7,14 @@ from models.scan_model import scan_collection
 from config import db
 from bson import ObjectId
 
+from controllers.state_controller import get_state, set_state
+
+last2 = get_state("last2", default=300)
+ 
 latest_weight = None
 last_weight = 0
+
+last3=275
 
 
 def add_inventory_item(ambulance_id, item):
@@ -198,6 +204,7 @@ def handle_rfid(request):
                     "mode": "used",
                     "timestamp": datetime.utcnow()
                 }
+                
                 db.rfid_summary.insert_one(rfid_summary)
                 print(f"Item {item['name']} removed from inventory (used).")
 
@@ -208,7 +215,10 @@ def handle_rfid(request):
                 if latest_weight < 0:
                     latest_weight = 0
 
-                difference = 500 - latest_weight
+                last2 = get_state("last2", default=300)
+                print("🔍 last2 value:", last2)
+
+                difference = last2 - latest_weight
 
                 # Fetch the item entry from the inventory
                 doc = inventory_collection.find_one({
@@ -265,15 +275,15 @@ def handle_rfid(request):
                     print(f"✅ Updated item quantity for {item['name']} by -{difference}")
                 else:
                     print("⚠️ Item quantity update failed or already up to date.")
-
+                difference=0
+                set_state("last2", latest_weight)
                 print("📦 Weight from load cell:", latest_weight)
                 print("📏 Weight difference:", difference)
                 print(f"Item {item['name']} is weighted.")
 
             elif status == "weighted_refill":
                 if latest_weight >= 10 and last_weight is not None:
-                    quant = latest_weight - last_weight
-                    last_weight = latest_weight  # Move this after the DB update if consistency matters
+                    quant = latest_weight - last3
 
                     doc = inventory_collection.find_one({
                         "ambulance_id": "A001",
@@ -321,6 +331,7 @@ def handle_rfid(request):
                     else:
                         print("⚠️ Item quantity update failed or unchanged.")
                         return jsonify({"message": "No update made"}), 200
+                    last3=latest_weight
 
                 else:
                     return jsonify({"message": "Tray is empty or last_weight missing"}), 200

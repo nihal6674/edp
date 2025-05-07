@@ -2,6 +2,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { useEffect } from "react";
 import axios from "axios";
 import AmbulanceInventory from "./AmbulanceInventory";
+import AmbulanceMap from "../AmbulanceMap";
 import { logout } from "../../redux/authSlice";
 import {
   setRequestLoading,
@@ -129,7 +130,13 @@ const AmbulanceDashboard = () => {
           <p className="text-green-600 font-medium">✅ Ambulance is free.</p>
         )}
       </div>
-
+      <div className="mt-6 h-[400px] w-full rounded-lg shadow overflow-hidden border border-gray-300">
+      {requestStatus === "busy" && assignment ? (
+  <div className="mt-6 h-[400px] w-full rounded-lg shadow overflow-hidden border border-gray-300">
+    <AmbulanceMap />
+  </div>
+) : null}
+</div>
       {/* Inventory */}
       <AmbulanceInventory />
     </div>

@@ -71,12 +71,7 @@ const ScanModeButtons = () => {
         >
           Weighted
         </button>
-        <button
-          onClick={() => changeMode('weighted_refill')}
-          className={getButtonClasses('weighted_refill', 'purple')}
-        >
-          Weighted Refill
-        </button>
+        
       </div>
 
       {response && <p className="text-gray-700">{response}</p>}
